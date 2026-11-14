@@ -1,0 +1,26 @@
+{
+  "name": "dsh-favicon-status",
+  "version": "0.1.0",
+  "description": "Colors the DeepSeek Harness tab favicon by Session status: red for a broken turn, yellow for a waiting question, green for a finished Session, and a spinner while Sessions run.",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": ["index.js", "client.js", "cordis.patch.yml", "locale/*.json", "docs", "icon.svg", "README.md"],
+  "scripts": {
+    "check": "node --check index.js && node --check client.js",
+    "test": "node --test tests/"
+  },
+  "dsh": {
+    "bundle": { "patch": "./cordis.patch.yml" },
+    "client": {
+      "platform": "web",
+      "inject": ["@deepseek-ai/dsh-api-session-controller", "@deepseek-ai/dsh-client-ui-session"]
+    }
+  }
+}

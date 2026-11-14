@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 110" width="400" height="110" font-family="system-ui, sans-serif" font-size="13">
+  <g transform="translate(20 20)"><rect width="56" height="56" rx="12" fill="#888" opacity=".2"/><circle cx="40" cy="40" r="14" fill="#e5484d"/><text x="28" y="80" text-anchor="middle">broke</text></g>
+  <g transform="translate(115 20)"><rect width="56" height="56" rx="12" fill="#888" opacity=".2"/><circle cx="40" cy="40" r="14" fill="#f5b301"/><text x="28" y="80" text-anchor="middle">question</text></g>
+  <g transform="translate(210 20)"><rect width="56" height="56" rx="12" fill="#888" opacity=".2"/><circle cx="40" cy="40" r="14" fill="#30a46c"/><text x="28" y="80" text-anchor="middle">success</text></g>
+  <g transform="translate(305 20)"><circle cx="28" cy="28" r="24" fill="none" stroke="#888" stroke-opacity=".25" stroke-width="6"/><path d="M28 4 A24 24 0 0 1 50 36" fill="none" stroke="#3e8cf0" stroke-width="6" stroke-linecap="round"/><text x="28" y="80" text-anchor="middle">running</text></g>
+</svg>
