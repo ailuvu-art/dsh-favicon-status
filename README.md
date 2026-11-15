@@ -31,12 +31,12 @@ The DSH title (`<session> — DeepSeek Harness`) is kept; the prefix is layered 
 
 ## Install
 
-From the DSH Web UI: **Plugins** → **Add plugin**, then enter the package source.
+From the DSH Web UI: **Plugins** → **Add plugin**, then enter `github:ailuvu-art/dsh-favicon-status`.
 
 From the command line:
 
 ```sh
-dsh plugin --profile <your-profile> add <package-source>
+dsh plugin --profile <your-profile> add github:ailuvu-art/dsh-favicon-status
 ```
 
 The plugin has a server-side part, so restart `dsh web` if the Plugins page says a restart is required. Then refresh the browser tab.
