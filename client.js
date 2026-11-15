@@ -1,13 +1,17 @@
 /**
  * Browser half of dsh-favicon-status.
  *
- * Paints the tab favicon from the shared Session status:
+ * Mirrors Session status onto the browser tab — the favicon and a title prefix:
  *   red     — a Session's latest turn broke and you have not opened it since
  *   yellow  — a Session waits on you (approval, question, plan review)
  *   green   — a Session finished successfully while you were elsewhere
- *   loading — Sessions are running and none of the above applies
- *   idle    — the original favicon, restored untouched
+ *   loading — Sessions (or their subagents) are running and none of the above applies
+ *   idle    — the original favicon and title, restored untouched
  * Priority: red > yellow > green > loading > idle.
+ *
+ * Title layering is ported from @climber47/dsh-tab-status: the built-in layout
+ * plugin keeps writing "<session> — DeepSeek Harness"; this plugin only layers
+ * its own prefix on top and re-applies it after any foreign write.
  */
 window.__ModuleLoader__.load({
   id: 'dsh-favicon-status',
@@ -15,10 +19,24 @@ window.__ModuleLoader__.load({
     const PROJECTION_KEY = 'faviconTurnOutcome'
     const STORAGE_KEY = 'dsh-favicon-status.ack.v1'
     const LINK_ID = 'dsh-favicon-status'
+    const NS = 'dsh-favicon-status'
     const SIZE = 64
-    const COLORS = { red: '#e5484d', yellow: '#f5b301', green: '#30a46c', loading: '#3e8cf0' }
     const FRAME_MS = 120
     const FRAMES = 12
+    /** Theme token and fallback per state. */
+    const COLORS = {
+      red: ['--dsw-alias-state-error-primary', '#e5484d'],
+      yellow: ['--dsw-alias-state-warn-primary', '#f5b301'],
+      green: ['--dsw-alias-state-success-primary', '#30a46c'],
+      loading: ['--dsw-alias-brand-primary', '#3e8cf0'],
+    }
+    const SYMBOL = { red: '\u2715 ', yellow: '\u26a0 ', green: '\u2713 ', loading: '\u25cf ' }
+    const SEPARATOR = ' \u00b7 '
+    const WORDS = {
+      en: { red: 'Failed', yellow: 'Waiting', green: 'Done', loading: 'Running' },
+      vi: { red: 'Lỗi', yellow: 'Chờ bạn', green: 'Xong', loading: 'Đang chạy' },
+      'zh-CN': { red: '出错', yellow: '待处理', green: '已完成', loading: '进行中' },
+    }
 
     // ---------- pure state ----------
 
@@ -42,45 +60,67 @@ window.__ModuleLoader__.load({
       return (row.retainedBy?.mainView ?? 0) > 0
     }
 
+    function runningOf(list, statuses, id) {
+      return statuses.get(id)?.running ?? list.byId?.[id]?.running ?? false
+    }
+
+    /** Whether the Session or any of its direct subagents is running. */
+    function isWorking(list, statuses, id) {
+      if (runningOf(list, statuses, id)) return true
+      const children = list.projectionsBySession?.[id]?.values?.subagentCatalog
+      if (!Array.isArray(children)) return false
+      return children.some(child => child !== null && typeof child === 'object' && runningOf(list, statuses, child.id))
+    }
+
     /**
-     * Derive the favicon state and the acknowledgements to record.
+     * Derive the tab state and the acknowledgements to record.
      * @param list - Session list snapshot.
      * @param statuses - unified Session status map.
      * @param acks - Session id → acknowledged failure seq.
      * @returns `{ kind, counts, ack }`, where `ack` lists failures the user is looking at now.
      */
     function summarize(list, statuses, acks) {
-      const counts = { red: 0, yellow: 0, green: 0, running: 0 }
+      const counts = { red: 0, yellow: 0, green: 0, loading: 0 }
       const ack = []
       for (const row of visibleSessions(list)) {
         const status = statuses.get(row.id)
         const outcome = outcomeOf(list, row.id)
-        const running = status?.running ?? row.running
+        const working = isWorking(list, statuses, row.id)
+        const ownRunning = runningOf(list, statuses, row.id)
         let broken = false
-        if (outcome !== null && !running) {
-          if (isMain(row)) {
-            if ((acks[row.id] ?? -1) < outcome.seq) ack.push([row.id, outcome.seq])
-          } else if ((acks[row.id] ?? -1) < outcome.seq) {
-            broken = true
-          }
+        if (outcome !== null && !ownRunning && (acks[row.id] ?? -1) < outcome.seq) {
+          if (isMain(row)) ack.push([row.id, outcome.seq])
+          else broken = true
         }
         if (broken) counts.red++
         else if (status?.pendingInteraction !== undefined) counts.yellow++
         else if (status?.completionUnread === true && outcome === null) counts.green++
-        if (running) counts.running++
+        if (working) counts.loading++
       }
       const kind = counts.red > 0 ? 'red'
         : counts.yellow > 0 ? 'yellow'
           : counts.green > 0 ? 'green'
-            : counts.running > 0 ? 'loading'
+            : counts.loading > 0 ? 'loading'
               : 'idle'
       return { kind, counts, ack }
     }
 
-    /** Badge count shown inside the dot. */
+    /** Count shown inside the favicon dot; a lone Session or the spinner shows none. */
     function countFor(summary) {
-      const n = summary.kind === 'loading' ? 0 : summary.counts[summary.kind] ?? 0
+      const n = summary.kind === 'loading' || summary.kind === 'idle' ? 0 : summary.counts[summary.kind]
       return n > 9 ? '9+' : n > 1 ? String(n) : ''
+    }
+
+    /**
+     * Title prefix, e.g. `⚠ 2 Waiting · `. A single running Session writes no number.
+     * @param summary - result of summarize.
+     * @param word - localized state word.
+     */
+    function prefixOf(summary, word) {
+      if (summary.kind === 'idle') return ''
+      const n = summary.counts[summary.kind]
+      const count = summary.kind === 'loading' && n <= 1 ? '' : `${n} `
+      return SYMBOL[summary.kind] + count + word + SEPARATOR
     }
 
     // ---------- acknowledgement storage ----------
@@ -100,26 +140,79 @@ window.__ModuleLoader__.load({
       try { globalThis.localStorage?.setItem(STORAGE_KEY, JSON.stringify(acks)) } catch { /* storage unavailable */ }
     }
 
+    // ---------- title layering ----------
+
+    function createTitle() {
+      let desired = ''
+      let applied = ''
+      let observer = null
+
+      function base(title) {
+        return applied !== '' && title.startsWith(applied) ? title.slice(applied.length) : title
+      }
+
+      function sync() {
+        const seen = document.title
+        const next = desired + base(seen)
+        applied = desired
+        // Writing only on change keeps the observer from re-triggering itself.
+        if (seen !== next) document.title = next
+      }
+
+      return {
+        set(prefix) {
+          if (prefix === desired && document.title.startsWith(prefix)) return
+          desired = prefix
+          sync()
+        },
+        watch() {
+          const element = document.querySelector('title')
+          observer = new MutationObserver(sync)
+          observer.observe(element ?? document.head, { childList: true, characterData: true, subtree: true })
+        },
+        dispose() {
+          observer?.disconnect()
+          observer = null
+          desired = ''
+          sync()
+          applied = ''
+        },
+      }
+    }
+
     // ---------- drawing ----------
 
     let baseImage = null
     let baseHref = ''
 
+    function isDark() {
+      return globalThis.matchMedia?.('(prefers-color-scheme: dark)').matches === true
+    }
+
+    function colorOf(kind) {
+      const [token, fallback] = COLORS[kind]
+      try {
+        const value = getComputedStyle(document.body).getPropertyValue(token).trim()
+        return value === '' ? fallback : value
+      } catch {
+        return fallback
+      }
+    }
+
     function pickOriginalHref(links) {
-      const dark = globalThis.matchMedia?.('(prefers-color-scheme: dark)').matches === true
       const match = links.find(link => {
         const media = link.getAttribute('media')
         return media === null || globalThis.matchMedia?.(media).matches !== false
       })
-      return (match ?? links[0])?.href ?? (dark ? '/favicon-dark.svg' : '/favicon.svg')
+      return (match ?? links[0])?.href ?? (isDark() ? '/favicon-dark.svg' : '/favicon.svg')
     }
 
     function loadBase(href, onReady) {
-      if (href === baseHref && baseImage !== null) return
+      if (href === baseHref) return
       baseHref = href
+      baseImage = null
       const image = new Image()
       image.onload = () => { if (baseHref === href) { baseImage = image; onReady() } }
-      image.onerror = () => { if (baseHref === href) baseImage = null }
       image.src = href
     }
 
@@ -129,7 +222,7 @@ window.__ModuleLoader__.load({
       canvas.height = SIZE
       const c = canvas.getContext('2d')
       if (c === null) return null
-      const color = COLORS[kind]
+      const color = colorOf(kind)
       if (kind === 'loading') {
         if (baseImage !== null) {
           try { c.drawImage(baseImage, 12, 12, 40, 40) } catch { /* undecodable */ }
@@ -149,7 +242,7 @@ window.__ModuleLoader__.load({
         const x = SIZE - r - 1
         const y = SIZE - r - 1
         c.beginPath(); c.arc(x, y, r + 3, 0, Math.PI * 2)
-        c.fillStyle = globalThis.matchMedia?.('(prefers-color-scheme: dark)').matches ? '#1c1c1e' : '#ffffff'
+        c.fillStyle = isDark() ? '#1c1c1e' : '#ffffff'
         c.fill()
         c.beginPath(); c.arc(x, y, r, 0, Math.PI * 2)
         c.fillStyle = color
@@ -170,7 +263,7 @@ window.__ModuleLoader__.load({
     function createPainter() {
       let detached = null
       let link = null
-      let timer = undefined
+      let timer
       let frame = 0
       let current = { kind: 'idle', label: '' }
 
@@ -190,6 +283,10 @@ window.__ModuleLoader__.load({
         document.head.appendChild(link)
       }
 
+      function stopTimer() {
+        if (timer !== undefined) { clearInterval(timer); timer = undefined }
+      }
+
       function release() {
         stopTimer()
         current = { kind: 'idle', label: '' }
@@ -203,10 +300,6 @@ window.__ModuleLoader__.load({
         detached = null
       }
 
-      function stopTimer() {
-        if (timer !== undefined) { clearInterval(timer); timer = undefined }
-      }
-
       function repaint() {
         if (link === null || current.kind === 'idle') return
         const url = draw(current.kind, current.label, frame)
@@ -215,29 +308,37 @@ window.__ModuleLoader__.load({
 
       function show(kind, label) {
         if (kind === current.kind && label === current.label) return
-        current = { kind, label }
         if (kind === 'idle') { release(); return }
+        current = { kind, label }
         takeOver()
         if (kind === 'loading') {
-          if (timer === undefined) {
-            timer = setInterval(() => { frame = (frame + 1) % FRAMES; repaint() }, FRAME_MS)
-          }
+          if (timer === undefined) timer = setInterval(() => { frame = (frame + 1) % FRAMES; repaint() }, FRAME_MS)
         } else {
           stopTimer()
         }
         repaint()
       }
 
-      return { show, release, repaint }
+      /** Redraw after colors or the base mark changed. */
+      function refresh() {
+        const { kind, label } = current
+        release()
+        baseHref = ''
+        show(kind, label)
+      }
+
+      return { show, release, repaint, refresh }
     }
 
-    const internals = { summarize, countFor, visibleSessions }
+    const internals = { summarize, countFor, prefixOf, visibleSessions }
     if (typeof globalThis.__dshFaviconStatusTestHook === 'function') globalThis.__dshFaviconStatusTestHook(internals)
 
     return {
-      inject: ['sessions', 'uiSession'],
+      inject: ['sessions', 'uiSession', 'locale'],
       apply(ctx) {
         const painter = createPainter()
+        const title = createTitle()
+        const t = ctx.locale.bind(NS)
         let acks = readAcks()
         let initialized = acks !== null
         if (acks === null) acks = {}
@@ -261,20 +362,27 @@ window.__ModuleLoader__.load({
             writeAcks(acks)
           }
           painter.show(summary.kind, countFor(summary))
+          title.set(summary.kind === 'idle' ? '' : prefixOf(summary, t(summary.kind)))
         }
 
+        ctx.effect(() => ctx.locale.register(NS, WORDS), 'dsh-favicon-status.locale')
+        ctx.on('theme/change', () => { painter.refresh() })
         ctx.effect(() => {
-          const offList = ctx.sessions.list.subscribe(update)
-          const offStatus = ctx.uiSession.sessionStatus.subscribe(update)
+          title.watch()
+          const offs = [
+            ctx.sessions.list.subscribe(update),
+            ctx.uiSession.sessionStatus.subscribe(update),
+            ctx.locale.subscribe(update),
+          ]
           const media = globalThis.matchMedia?.('(prefers-color-scheme: dark)')
-          const onScheme = () => { baseImage = null; baseHref = ''; painter.release(); update() }
+          const onScheme = () => { painter.refresh() }
           media?.addEventListener?.('change', onScheme)
           update()
           return () => {
-            offList()
-            offStatus()
+            for (const off of offs) off()
             media?.removeEventListener?.('change', onScheme)
             painter.release()
+            title.dispose()
           }
         }, 'dsh-favicon-status')
       },

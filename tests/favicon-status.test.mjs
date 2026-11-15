@@ -93,7 +93,7 @@ test('loading when any Session runs; subagents and blanks ignored', () => {
   const l = list([row('a', { running: true }), row('b', { running: true }), row('s', { origin: 'subagent', parentId: 'a' }), row('x', { blank: true })])
   const s = summarize(l, new Map([['s', st({ pendingInteraction: { kind: 'question' } })]]), {})
   assert.equal(s.kind, 'loading')
-  assert.equal(s.counts.running, 2)
+  assert.equal(s.counts.loading, 2)
   assert.equal(countFor(s), '')
 })
 
@@ -102,4 +102,21 @@ test('badge count shows for several Sessions', () => {
   assert.equal(countFor({ kind: 'yellow', counts: { yellow: 1 } }), '')
   assert.equal(countFor({ kind: 'yellow', counts: { yellow: 3 } }), '3')
   assert.equal(countFor({ kind: 'red', counts: { red: 12 } }), '9+')
+})
+
+test('subagent running keeps the parent loading', () => {
+  const { summarize } = internals
+  const l = list([row('p'), row('c', { origin: 'subagent', parentId: 'p' })])
+  l.projectionsBySession.p = { values: { subagentCatalog: [{ id: 'c' }] } }
+  const s = summarize(l, new Map([['c', st({ running: true })]]), {})
+  assert.equal(s.kind, 'loading')
+})
+
+test('title prefix follows tab-status format', () => {
+  const { prefixOf } = internals
+  assert.equal(prefixOf({ kind: 'idle', counts: {} }, ''), '')
+  assert.equal(prefixOf({ kind: 'yellow', counts: { yellow: 2 } }, 'Waiting'), '\u26a0 2 Waiting \u00b7 ')
+  assert.equal(prefixOf({ kind: 'loading', counts: { loading: 1 } }, 'Running'), '\u25cf Running \u00b7 ')
+  assert.equal(prefixOf({ kind: 'loading', counts: { loading: 3 } }, 'Running'), '\u25cf 3 Running \u00b7 ')
+  assert.equal(prefixOf({ kind: 'red', counts: { red: 1 } }, 'Failed'), '\u2715 1 Failed \u00b7 ')
 })

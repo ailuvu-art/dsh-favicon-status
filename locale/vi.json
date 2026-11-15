@@ -1,7 +1,7 @@
 {
   "meta": {
-    "title": "Trạng thái favicon",
-    "description": "Tô màu biểu tượng tab trình duyệt theo trạng thái Session: đỏ khi lượt bị lỗi, vàng khi Session chờ bạn trả lời hoặc phê duyệt, xanh lá khi Session hoàn tất lúc bạn ở nơi khác, và vòng xoay khi Session đang chạy. Mở Session sẽ xóa huy hiệu.",
+    "title": "Trạng thái tab",
+    "description": "Hiển thị trạng thái Session trên tab trình duyệt. Favicon chuyển đỏ khi lượt bị lỗi, vàng khi Session chờ bạn trả lời hoặc phê duyệt, xanh lá khi Session hoàn tất lúc bạn ở nơi khác, và hiện vòng xoay khi Session đang chạy. Tiêu đề trang có tiền tố tương ứng như “⚠ 2 Chờ bạn ·”. Mở Session sẽ xóa huy hiệu.",
     "detail": "docs/DETAIL.md"
   }
 }

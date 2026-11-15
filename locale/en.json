@@ -1,7 +1,7 @@
 {
   "meta": {
-    "title": "Favicon status",
-    "description": "Colors the browser tab icon by Session status: red when a turn broke, yellow when a Session waits for your answer or approval, green when a Session finished while you were elsewhere, and a spinner while Sessions run. Opening the Session clears its badge.",
+    "title": "Tab status",
+    "description": "Mirrors Session status onto the browser tab. The favicon turns red when a turn broke, yellow when a Session waits for your answer or approval, green when a Session finished while you were elsewhere, and shows a spinner while Sessions run. The page title gets a matching prefix such as “⚠ 2 Waiting ·”. Opening the Session clears its badge.",
     "detail": "docs/DETAIL.md"
   }
 }
