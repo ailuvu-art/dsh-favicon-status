@@ -40,10 +40,11 @@ window.__ModuleLoader__.load({
 
     // ---------- pure state ----------
 
-    /** Top-level, non-blank Sessions that the Host lists. */
-    function visibleSessions(list) {
+    /** Top-level, non-blank, non-archived Sessions that the Host lists. */
+    function visibleSessions(list, archivedIds) {
       const out = []
       for (const id of list.ids ?? []) {
+        if (archivedIds?.has(id)) continue
         const row = list.byId?.[id]
         if (row === undefined || row.blank || row.origin === 'subagent' || row.parentId !== undefined) continue
         out.push(row)
@@ -77,12 +78,13 @@ window.__ModuleLoader__.load({
      * @param list - Session list snapshot.
      * @param statuses - unified Session status map.
      * @param acks - Session id → acknowledged failure seq.
+     * @param archivedIds - optional Set of archived Session ids to exclude.
      * @returns `{ kind, counts, ack }`, where `ack` lists failures the user is looking at now.
      */
-    function summarize(list, statuses, acks) {
+    function summarize(list, statuses, acks, archivedIds) {
       const counts = { red: 0, yellow: 0, green: 0, loading: 0 }
       const ack = []
-      for (const row of visibleSessions(list)) {
+      for (const row of visibleSessions(list, archivedIds)) {
         const status = statuses.get(row.id)
         const outcome = outcomeOf(list, row.id)
         const working = isWorking(list, statuses, row.id)
@@ -96,6 +98,17 @@ window.__ModuleLoader__.load({
         else if (status?.pendingInteraction !== undefined) counts.yellow++
         else if (status?.completionUnread === true && outcome === null) counts.green++
         if (working) counts.loading++
+      }
+      if (archivedIds !== undefined) {
+        for (const id of archivedIds) {
+          const row = list.byId?.[id]
+          if (row === undefined || row.blank || row.origin === 'subagent' || row.parentId !== undefined) continue
+          if (!isMain(row)) continue
+          const outcome = outcomeOf(list, row.id)
+          if (outcome !== null && !runningOf(list, statuses, row.id) && (acks[row.id] ?? -1) < outcome.seq) {
+            ack.push([row.id, outcome.seq])
+          }
+        }
       }
       const kind = counts.red > 0 ? 'red'
         : counts.yellow > 0 ? 'yellow'
@@ -334,7 +347,7 @@ window.__ModuleLoader__.load({
     if (typeof globalThis.__dshFaviconStatusTestHook === 'function') globalThis.__dshFaviconStatusTestHook(internals)
 
     return {
-      inject: ['sessions', 'uiSession', 'locale'],
+      inject: ['sessions', 'uiSession', 'locale', 'workspaces'],
       apply(ctx) {
         const painter = createPainter()
         const title = createTitle()
@@ -346,17 +359,19 @@ window.__ModuleLoader__.load({
         const update = () => {
           const list = ctx.sessions.list.getSnapshot()
           const statuses = ctx.uiSession.sessionStatus.getSnapshot()
+          const workspaces = ctx.workspaces.list.getSnapshot()
+          if (list.phase !== 'ready' || workspaces.phase !== 'ready') return
+          const archivedIds = new Set(workspaces.archivedSessionIds ?? [])
           if (!initialized) {
             // First run on this browser: treat breaks that already exist as seen.
-            if (list.phase !== 'ready') return
-            for (const row of visibleSessions(list)) {
+            for (const row of visibleSessions(list, archivedIds)) {
               const outcome = outcomeOf(list, row.id)
               if (outcome !== null) acks[row.id] = outcome.seq
             }
             initialized = true
             writeAcks(acks)
           }
-          const summary = summarize(list, statuses, acks)
+          const summary = summarize(list, statuses, acks, archivedIds)
           if (summary.ack.length > 0) {
             for (const [id, seq] of summary.ack) acks[id] = seq
             writeAcks(acks)
@@ -373,6 +388,7 @@ window.__ModuleLoader__.load({
             ctx.sessions.list.subscribe(update),
             ctx.uiSession.sessionStatus.subscribe(update),
             ctx.locale.subscribe(update),
+            ctx.workspaces.list.subscribe(update),
           ]
           const media = globalThis.matchMedia?.('(prefers-color-scheme: dark)')
           const onScheme = () => { painter.refresh() }
